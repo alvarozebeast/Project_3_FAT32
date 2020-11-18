@@ -4,72 +4,149 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/wait.h>
-#include <fcntl.h>
-#include "parser.c"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
-
-
+#include "parser.c"
 
 
 void printInfo(int, int, int, int, int, int, int);
 char *get_input(void); 
 
+
 int main(){
 
 	int fd = open("fat32.img", O_RDONLY);
-	// unsigned short (2 bytes)
-	// unsigned int (4 bytes)
-	unsigned short BytsPerSec = 0, SecPerClus = 0, RsvdSecCnt = 0, NumFATs = 0;
-	int RootClus = 0, TotSec32 = 0, FATSz32 = 0;
-
-	lseek(fd, 11, SEEK_CUR);
-	read(fd, &BytsPerSec, 2);
-	read(fd, &SecPerClus, 1);
-	read(fd, &RsvdSecCnt, 2);
-	read(fd, &NumFATs, 2);
-	lseek(fd, 14, SEEK_CUR);
-	read(fd, &TotSec32, 4);
-	read(fd, &FATSz32, 4);
-	lseek(fd, 4, SEEK_CUR);
-	read(fd, &RootClus, 4);
-
-
 	if (fd == -1)
 		printf("Error opening file");
-	else{
-		while(1){
-			
-			
-			
-			printf("$ ");
-			char* input = get_input();
-			tokenlist *tokens = get_tokens(input);
-			
-			//printf("Whole input: %s\n", input);
-			// for (int i = 0; i < tokens->size; i++) 
-			// {
-			// 		printf("token %d: (%s)\n", i, tokens->items[i]);
-			// }
+	// unsigned short (2 bytes)
+	// unsigned int (4 bytes)
+	unsigned short bps = 0, spc = 0, rsc = 0, noF = 0;
+	unsigned int rc = 0, ts32 = 0, fz32 = 0, dataRegStart = 0, currDirectory = 0, empty = 0;
+	short i = 0, j = 0;
+	unsigned int size = 0;
+	char fileName[11];
+	char tempStr[11];
+	off_t tempS;
+	ssize_t tempR;
 
-			if(strcmp(tokens->items[0], "exit") == 0){
-				free(input);
-				printf("Exiting Program\n");
-				break; 
-			}
-			if(strcmp(input, "info") == 0){
+	tempS = lseek(fd, 11, SEEK_CUR);
+	tempR = read(fd, &bps, 2);	
+	tempR = read(fd, &spc, 1);
+	tempR = read(fd, &rsc, 2);
+	tempR = read(fd, &noF, 2);
+	tempS = lseek(fd, 14, SEEK_CUR);
+	tempR = read(fd, &ts32, 4);
+	tempR = read(fd, &fz32, 4);
+	tempS = lseek(fd, 4, SEEK_CUR);
+	tempR = read(fd, &rc, 4);
 
-				printInfo(BytsPerSec, SecPerClus, RsvdSecCnt, NumFATs, TotSec32, FATSz32,RootClus); 
-			}
-			if(strcmp(input, "cd") == 0){
-				printf("Change Directory\n");
-			}
+	dataRegStart = bps*(rsc + (noF*fz32));
+	//initialize directory to root
+	currDirectory = dataRegStart;
+	while(1){
 		
+		
+		printf("$ ");
+		
+		char* input = get_input();
+		tokenlist *tokens = get_tokens(input); 
+		
+		// printf("Whole input: %s\n", input);
+		// for (int i = 0; i < tokens->size; i++) 
+		// {
+		// 	printf("token %d: (%s)\n", i, tokens->items[i]);
+		// }
+
+		if(strcmp(tokens->items[0], "exit") == 0){
 			free(input);
-			free_tokens(tokens);
-		} // End of While
-	} // End of Else
+			printf("Exiting Program\n");
+			break; 
+		}
+		if(strcmp(tokens->items[0], "info") == 0){
+
+			printInfo(bps, spc, rsc, noF, ts32, fz32, rc); 
+		}
+		if(strcmp(tokens->items[0], "ls") == 0){
+			short n = 32;
+			tempS = lseek(fd, currDirectory, SEEK_SET);
+			tempR = read(fd, &empty, 4);
+			
+			while(empty != 0){
+				tempS = lseek(fd, currDirectory+n, SEEK_SET);
+
+				for(i = 0; i<11; i++){
+					tempR = read(fd, &tempStr[i], 1);
+				}
+				// Removing trailing blank spaces
+				for(i = 0; i < 11; i++)
+				{
+				 	if (!(tempStr[i] == ' ' && tempStr[i+1] == ' '))
+				 	{
+				 		fileName[j] = tempStr[i];
+				 		j++;
+				 	}
+				}
+				fileName[j-1] = '\0'; // one trailing blank kept showing up
+				j = 0;
+				
+				printf("%s ", fileName);
+
+				tempS = lseek(fd, 21, SEEK_CUR);
+				tempR = read(fd, &empty, 4);
+				n += 64;
+			}
+			printf("\n");
+		}
+		if(strcmp(tokens->items[0], "size") == 0){
+			short n = 32;
+			tempS = lseek(fd, currDirectory, SEEK_SET);
+			tempR = read(fd, &empty, 4);
+			
+			while(empty != 0){
+				tempS = lseek(fd, currDirectory+n, SEEK_SET);
+				
+				for(i = 0; i<11; i++){
+					tempR = read(fd, &tempStr[i], 1);
+				}				
+				// Removing trailing blank spaces
+				for(i = 0; i < 11; i++)
+				{
+				 	if (!(tempStr[i] == ' ' && tempStr[i+1] == ' '))
+				 	{
+				 		fileName[j] = tempStr[i];
+				 		j++;
+				 	}
+				}
+				fileName[j-1] = '\0'; // one trailing blank kept showing up
+				j = 0;
+				if (strcmp(fileName, tokens->items[1]) == 0)
+				{
+					break;
+				}
+				
+				tempS = lseek(fd, 21, SEEK_CUR);
+				tempR = read(fd, &empty, 4);
+				n += 64;
+			} // End of While
+			
+			tempS = lseek(fd, currDirectory+n+28, SEEK_SET);
+			tempR = read(fd, &size, 4);
+			printf("%d\n", size);
+		}
+		if(strcmp(tokens->items[0], "cd") == 0){
+			printf("Change Directory\n");
+			for (int i = 1; i < tokens->size; i++) {
+				printf("%s ", tokens->items[i]);
+			}
+			printf("\n");
+		}
+	
+		free(input);
+		free_tokens(tokens);
+	} // End of While
+	
 
 	if (close(fd) < 0)
 	{
